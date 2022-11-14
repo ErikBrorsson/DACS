@@ -1,7 +1,6 @@
 {
   "model": "DeepLab",
   "dataset": "cityscapes",
-
   "training": {
     "batch_size": 2,
     "num_workers": 4,
@@ -13,7 +12,6 @@
     "lr_schedule_power": 0.9,
     "weight_decay": 5e-4,
     "use_sync_batchnorm": true,
-
     "data": {
       "split_id_list": 0,
       "labeled_samples": 0,
@@ -22,7 +20,7 @@
       "crop": true
     },
     "unlabeled": {
-      "train_unlabeled": true,
+      "train_unlabeled": false,
       "consistency_weight": 1,
       "consistency_loss": "CE",
       "pixel_weight": "threshold_uniform",
@@ -31,12 +29,10 @@
       "color_jitter": true,
       "blur": true
     }
-
   },
   "seed": 1,
   "pretrained": "coco",
   "ignore_label": 255,
-
   "utils": {
     "save_checkpoint_every": 5000,
     "checkpoint_dir": "../saved/DeepLabv2",

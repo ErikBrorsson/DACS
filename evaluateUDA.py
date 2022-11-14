@@ -144,7 +144,7 @@ def evaluate(model, dataset, ignore_label=250, save_output_images=False, save_di
 
     elif dataset == 'gta':
         num_classes = 19
-        data_loader = get_loader('gta')
+        data_loader = get_loader('gta_test')
         data_path = get_data_path('gta')
         test_dataset = data_loader(data_path, list_path = './data/gta5_list/train.txt', img_size=(1280,720), mean=IMG_MEAN)
         testloader = data.DataLoader(test_dataset, batch_size=1, shuffle=True, pin_memory=True)
@@ -159,10 +159,10 @@ def evaluate(model, dataset, ignore_label=250, save_output_images=False, save_di
     total_loss = []
 
     for index, batch in enumerate(testloader):
-        image, label, size, name, _ = batch
-        size = size[0]
-        #if index > 500:
-        #    break
+        image, label, _, _, _ = batch
+        # size = size[0]
+        if index > 500:
+           break
         with torch.no_grad():
             output  = model(Variable(image).cuda())
             output = interp(output)

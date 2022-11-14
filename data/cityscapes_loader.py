@@ -2,6 +2,8 @@ import os
 import torch
 import numpy as np
 import scipy.misc as m
+import imageio
+from PIL import Image
 
 from torch.utils import data
 
@@ -138,10 +140,10 @@ class cityscapesLoader(data.Dataset):
             os.path.basename(img_path)[:-15] + "gtFine_labelIds.png",
         )
 
-        img = m.imread(img_path)
+        img = imageio.imread(img_path)
         img = np.array(img, dtype=np.uint8)
 
-        lbl = m.imread(lbl_path)
+        lbl = imageio.imread(lbl_path)
         lbl = np.array(lbl, dtype=np.uint8)
         lbl = self.encode_segmap(lbl)
 
@@ -162,9 +164,10 @@ class cityscapesLoader(data.Dataset):
         :param img:
         :param lbl:
         """
-        img = m.imresize(
-            img, (self.img_size[0], self.img_size[1])
-        )  # uint8 with RGB mode
+        img = np.array(Image.fromarray(img).resize((self.img_size[1], self.img_size[0])))
+        # img = m.imresize(
+        #     img, (self.img_size[0], self.img_size[1])
+        # )  # uint8 with RGB mode
         img = img[:, :, ::-1]  # RGB -> BGR
         img = img.astype(np.float64)
         img -= self.mean
@@ -177,7 +180,8 @@ class cityscapesLoader(data.Dataset):
 
         classes = np.unique(lbl)
         lbl = lbl.astype(float)
-        lbl = m.imresize(lbl, (self.img_size[0], self.img_size[1]), "nearest", mode="F")
+        lbl = np.array(Image.fromarray(lbl).resize((self.img_size[1], self.img_size[0]), resample=Image.Resampling.NEAREST))
+        # lbl = m.imresize(lbl, (self.img_size[0], self.img_size[1]), "nearest", mode="F")
         lbl = lbl.astype(int)
         if not np.all(classes == np.unique(lbl)):
             print("WARN: resizing labels yielded fewer classes")

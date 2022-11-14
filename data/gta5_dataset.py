@@ -77,6 +77,19 @@ class GTA5DataSet(data.Dataset):
         return image.copy(), label_copy.copy(), np.array(size), name
 
 
+class GTAWrapper(GTA5DataSet):
+    def __init__(self, root, list_path, max_iters=None, augmentations = None, img_size=(321, 321), mean=(128, 128, 128), scale=True, mirror=True, ignore_label=250):
+        
+        super().__init__(root, list_path, max_iters, augmentations, img_size, mean, scale, mirror, ignore_label)
+
+    def __getitem__(self, index):
+        
+        image, label, size, name = super().__getitem__(index)
+
+        return image, label, size, name, np.array([1])
+
+        
+
 if __name__ == '__main__':
     dst = GTA5DataSet("./data", is_transform=True)
     trainloader = data.DataLoader(dst, batch_size=4)

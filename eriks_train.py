@@ -1,4 +1,3 @@
-# python3 trainUDA.py --config ./configs/configUDA.json --name UDA --save-images True
 import argparse
 import os
 import sys
@@ -87,40 +86,6 @@ def adjust_learning_rate(optimizer, i_iter):
     if len(optimizer.param_groups) > 1 :
         optimizer.param_groups[1]['lr'] = lr * 10
 
-def create_ema_model(model):
-    #ema_model = getattr(models, config['arch']['type'])(self.train_loader.dataset.num_classes, **config['arch']['args']).to(self.device)
-    ema_model = Res_Deeplab(num_classes=num_classes)
-
-    for param in ema_model.parameters():
-        param.detach_()
-    mp = list(model.parameters())
-    mcp = list(ema_model.parameters())
-    n = len(mp)
-    for i in range(0, n):
-        mcp[i].data[:] = mp[i].data[:].clone()
-    #_, availble_gpus = self._get_available_devices(self.config['n_gpu'])
-    #ema_model = torch.nn.DataParallel(ema_model, device_ids=availble_gpus)
-    if len(gpus)>1:
-        #return torch.nn.DataParallel(ema_model, device_ids=gpus)
-        if use_sync_batchnorm:
-            ema_model = convert_model(ema_model)
-            ema_model = DataParallelWithCallback(ema_model, device_ids=gpus)
-        else:
-            ema_model = torch.nn.DataParallel(ema_model, device_ids=gpus)
-    return ema_model
-
-def update_ema_variables(ema_model, model, alpha_teacher, iteration):
-    # Use the "true" average until the exponential average is more correct
-    alpha_teacher = min(1 - 1 / (iteration + 1), alpha_teacher)
-    if len(gpus)>1:
-        for ema_param, param in zip(ema_model.module.parameters(), model.module.parameters()):
-            #ema_param.data.mul_(alpha).add_(1 - alpha, param.data)
-            ema_param.data[:] = alpha_teacher * ema_param[:].data[:] + (1 - alpha_teacher) * param[:].data[:]
-    else:
-        for ema_param, param in zip(ema_model.parameters(), model.parameters()):
-            #ema_param.data.mul_(alpha).add_(1 - alpha, param.data)
-            ema_param.data[:] = alpha_teacher * ema_param[:].data[:] + (1 - alpha_teacher) * param[:].data[:]
-    return ema_model
 
 def strongTransform(parameters, data=None, target=None):
     assert ((data is not None) or (target is not None))
@@ -229,17 +194,6 @@ def main():
 
     best_mIoU = 0
 
-    # if consistency_loss == 'MSE':
-    #     if len(gpus) > 1:
-    #         unlabeled_loss =  torch.nn.DataParallel(MSELoss2d(), device_ids=gpus).cuda()
-    #     else:
-    #         unlabeled_loss =  MSELoss2d().cuda()
-    # elif consistency_loss == 'CE':
-    #     if len(gpus) > 1:
-    #         unlabeled_loss = torch.nn.DataParallel(CrossEntropyLoss2dPixelWiseWeighted(ignore_index=ignore_label), device_ids=gpus).cuda()
-    #     else:
-    #         unlabeled_loss = CrossEntropyLoss2dPixelWiseWeighted(ignore_index=ignore_label).cuda()
-
     cudnn.enabled = True
 
     # create network
@@ -261,23 +215,15 @@ def main():
     model.load_state_dict(new_params)
 
     # init ema-model
-    if False:
-        print("creating ema model")
-        ema_model = create_ema_model(model)
-        ema_model.train()
-        ema_model = ema_model.cuda()
-    else:
-        ema_model = None
+    ema_model = None
 
+    # convert to synch batch norm. What is that?
     print(f"len gpus: {len(gpus)}")
     if len(gpus)>1:
         if use_sync_batchnorm:
-            print("use sync batch")
             model = convert_model(model)
             model = DataParallelWithCallback(model, device_ids=gpus)
         else:
-            print("dont use sync batch")
-
             model = torch.nn.DataParallel(model, device_ids=gpus)
     model.train()
     model.cuda()
@@ -296,24 +242,6 @@ def main():
 
     train_dataset_size = len(train_dataset)
     print ('dataset size: ', train_dataset_size)
-
-    if labeled_samples is None:
-        trainloader = data.DataLoader(train_dataset,
-                        batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
-
-        trainloader_remain = data.DataLoader(train_dataset,
-                        batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
-        trainloader_remain_iter = iter(trainloader_remain)
-
-    else:
-        partial_size = labeled_samples
-        print('Training on number of samples:', partial_size)
-        np.random.seed(random_seed)
-        trainloader_remain = data.DataLoader(train_dataset,
-                        batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-
-        trainloader_remain_iter = iter(trainloader_remain)
-
 
     #New loader for Domain transfer
     if True:
@@ -408,122 +336,34 @@ def main():
         L_l = loss_calc(pred, labels) # Cross entropy loss for labeled data
         #L_l = torch.Tensor([0.0]).cuda()
 
-        if train_unlabeled:
-            try:
-                batch_remain = next(trainloader_remain_iter)
-                if batch_remain[0].shape[0] != batch_size:
-                    batch_remain = next(trainloader_remain_iter)
-            except:
-                trainloader_remain_iter = iter(trainloader_remain)
-                batch_remain = next(trainloader_remain_iter)
-
-            images_remain, _, _, _, _ = batch_remain
-            images_remain = images_remain.cuda()
-            inputs_u_w, _ = weakTransform(weak_parameters, data = images_remain)
-            #inputs_u_w = inputs_u_w.clone()
-            logits_u_w = interp(ema_model(inputs_u_w))
-            logits_u_w, _ = weakTransform(getWeakInverseTransformParameters(weak_parameters), data = logits_u_w.detach())
-
-            pseudo_label = torch.softmax(logits_u_w.detach(), dim=1)
-            max_probs, targets_u_w = torch.max(pseudo_label, dim=1)
-
-            if mix_mask == "class":
-                for image_i in range(batch_size):
-                    classes = torch.unique(labels[image_i])
-                    #classes=classes[classes!=ignore_label]
-                    nclasses = classes.shape[0]
-                    #if nclasses > 0:
-                    classes = (classes[torch.Tensor(np.random.choice(nclasses, int((nclasses+nclasses%2)/2),replace=False)).long()]).cuda()
-
-                    if image_i == 0:
-                        MixMask0 = transformmasks.generate_class_mask(labels[image_i], classes).unsqueeze(0).cuda()
-                    else:
-                        MixMask1 = transformmasks.generate_class_mask(labels[image_i], classes).unsqueeze(0).cuda()
-
-            elif mix_mask == None:
-                MixMask = torch.ones((inputs_u_w.shape))
-
-            strong_parameters = {"Mix": MixMask0}
-            if random_flip:
-                strong_parameters["flip"] = random.randint(0, 1)
-            else:
-                strong_parameters["flip"] = 0
-            if color_jitter:
-                strong_parameters["ColorJitter"] = random.uniform(0, 1)
-            else:
-                strong_parameters["ColorJitter"] = 0
-            if gaussian_blur:
-                strong_parameters["GaussianBlur"] = random.uniform(0, 1)
-            else:
-                strong_parameters["GaussianBlur"] = 0
-
-            inputs_u_s0, _ = strongTransform(strong_parameters, data = torch.cat((images[0].unsqueeze(0),images_remain[0].unsqueeze(0))))
-            strong_parameters["Mix"] = MixMask1
-            inputs_u_s1, _ = strongTransform(strong_parameters, data = torch.cat((images[1].unsqueeze(0),images_remain[1].unsqueeze(0))))
-            inputs_u_s = torch.cat((inputs_u_s0,inputs_u_s1))
-            logits_u_s = interp(model(inputs_u_s))
-
-            strong_parameters["Mix"] = MixMask0
-            _, targets_u0 = strongTransform(strong_parameters, target = torch.cat((labels[0].unsqueeze(0),targets_u_w[0].unsqueeze(0))))
-            strong_parameters["Mix"] = MixMask1
-            _, targets_u1 = strongTransform(strong_parameters, target = torch.cat((labels[1].unsqueeze(0),targets_u_w[1].unsqueeze(0))))
-            targets_u = torch.cat((targets_u0,targets_u1)).long()
-
-            if pixel_weight == "threshold_uniform":
-                unlabeled_weight = torch.sum(max_probs.ge(0.968).long() == 1).item() / np.size(np.array(targets_u.cpu()))
-                pixelWiseWeight = unlabeled_weight * torch.ones(max_probs.shape).cuda()
-            elif pixel_weight == "threshold":
-                pixelWiseWeight = max_probs.ge(0.968).float().cuda()
-            elif pixel_weight == False:
-                pixelWiseWeight = torch.ones(max_probs.shape).cuda()
-
-            onesWeights = torch.ones((pixelWiseWeight.shape)).cuda()
-            strong_parameters["Mix"] = MixMask0
-            _, pixelWiseWeight0 = strongTransform(strong_parameters, target = torch.cat((onesWeights[0].unsqueeze(0),pixelWiseWeight[0].unsqueeze(0))))
-            strong_parameters["Mix"] = MixMask1
-            _, pixelWiseWeight1 = strongTransform(strong_parameters, target = torch.cat((onesWeights[1].unsqueeze(0),pixelWiseWeight[1].unsqueeze(0))))
-            pixelWiseWeight = torch.cat((pixelWiseWeight0,pixelWiseWeight1)).cuda()
-
-            if consistency_loss == 'MSE':
-                unlabeled_weight = torch.sum(max_probs.ge(0.968).long() == 1).item() / np.size(np.array(targets_u.cpu()))
-                #pseudo_label = torch.cat((pseudo_label[1].unsqueeze(0),pseudo_label[0].unsqueeze(0)))
-                L_u = consistency_weight * unlabeled_weight * unlabeled_loss(logits_u_s, pseudo_label)
-            elif consistency_loss == 'CE':
-                L_u = consistency_weight * unlabeled_loss(logits_u_s, targets_u, pixelWiseWeight)
-
-            loss = L_l + L_u
-
-        else:
-            loss = L_l
+        loss = L_l
 
         if len(gpus) > 1:
             #print('before mean = ',loss)
             loss = loss.mean()
             #print('after mean = ',loss)
             loss_l_value += L_l.mean().item()
-            if train_unlabeled:
-                loss_u_value += L_u.mean().item()
+            # if train_unlabeled:
+            #     loss_u_value += L_u.mean().item()
         else:
             loss_l_value += L_l.item()
-            if train_unlabeled:
-                loss_u_value += L_u.item()
+            # if train_unlabeled:
+            #     loss_u_value += L_u.item()
 
         loss.backward()
         optimizer.step()
 
-        # update Mean teacher network
-        if ema_model is not None:
-            alpha_teacher = 0.99
-            ema_model = update_ema_variables(ema_model = ema_model, model = model, alpha_teacher=alpha_teacher, iteration=i_iter)
-
+        # print losses
         print('iter = {0:6d}/{1:6d}, loss_l = {2:.3f}, loss_u = {3:.3f}'.format(i_iter, num_iterations, loss_l_value, loss_u_value))
 
+        # save checkpoint
         if i_iter % save_checkpoint_every == 0 and i_iter!=0:
             if epochs_since_start * len(trainloader) < save_checkpoint_every:
                 _save_checkpoint(i_iter, model, optimizer, config, ema_model, overwrite=False)
             else:
                 _save_checkpoint(i_iter, model, optimizer, config, ema_model)
 
+        # write losses to tensorboard
         if config['utils']['tensorboard']:
             if 'tensorboard_writer' not in locals():
                 tensorboard_writer = tensorboard.SummaryWriter(log_dir, flush_secs=30)
@@ -541,53 +381,33 @@ def main():
                     accumulated_loss_u = []
 
 
+        # evaluate model on both cityscapes and gta
         if i_iter % val_per_iter == 0 and i_iter != 0:
             model.eval()
             # if dataset == 'cityscapes':
-            #     mIoU, eval_loss = evaluate(model, dataset, ignore_label=250, input_size=(512,1024), save_dir=checkpoint_dir)
-
             print("Evaluating on gta...")
             gta_mIoU, gta_eval_loss = evaluate(model, 'gta', ignore_label=255, input_size=None, save_dir=checkpoint_dir)
             print("Evaluating on Cityscapes...")
             cs_mIoU, cs_eval_loss = evaluate(model, 'cityscapes', ignore_label=250, input_size=(512,1024), save_dir=checkpoint_dir)
 
-
             model.train()
 
-            if mIoU > best_mIoU and save_best_model:
-                best_mIoU = mIoU
+            if cs_mIoU > best_mIoU and save_best_model:
+                best_mIoU = cs_mIoU
                 _save_checkpoint(i_iter, model, optimizer, config, ema_model, save_best=True)
 
             if config['utils']['tensorboard']:
-                # tensorboard_writer.add_scalar('Validation/mIoU', mIoU, i_iter)
-                # tensorboard_writer.add_scalar('Validation/Loss', eval_loss, i_iter)
                 tensorboard_writer.add_scalar('Validation/cs-mIoU', cs_mIoU, i_iter)
                 tensorboard_writer.add_scalar('Validation/cs-Loss', cs_eval_loss, i_iter)
                 tensorboard_writer.add_scalar('Validation/gta-mIoU', gta_mIoU, i_iter)
                 tensorboard_writer.add_scalar('Validation/gta-Loss', gta_eval_loss, i_iter)
 
-        # if save_unlabeled_images and train_unlabeled and i_iter % save_checkpoint_every == 0:
-        #     # Saves two mixed images and the corresponding prediction
-        #     save_image(inputs_u_s[0].cpu(),i_iter,'input1',palette.CityScpates_palette)
-        #     save_image(inputs_u_s[1].cpu(),i_iter,'input2',palette.CityScpates_palette)
-        #     _, pred_u_s = torch.max(logits_u_s, dim=1)
-        #     save_image(pred_u_s[0].cpu(),i_iter,'pred1',palette.CityScpates_palette)
-        #     save_image(pred_u_s[1].cpu(),i_iter,'pred2',palette.CityScpates_palette)
-
         if save_unlabeled_images and i_iter % save_checkpoint_every == 0:
             _, pred_u_s = torch.max(pred, dim=1)
-            save_image(pred_u_s[0].cpu(),i_iter,'pred_gt',palette.CityScpates_palette)
+            save_image(pred_u_s[0].cpu(),i_iter,'pred1',palette.CityScpates_palette)
 
-            batch_remain = next(trainloader_remain_iter)
-            images_remain, _, _, _, _ = batch_remain
-            images_remain = images_remain.cuda()
-            pred = model(images_remain)
-            _, pred_u_s = torch.max(pred, dim=1)
-            save_image(pred_u_s[0].cpu(),i_iter,'pred_cs',palette.CityScpates_palette)
-
-
+    # after finished training, save checkpoint and evaluate model
     _save_checkpoint(num_iterations, model, optimizer, config, ema_model)
-
     model.eval()
     if dataset == 'cityscapes':
         mIoU, val_loss = evaluate(model, dataset, ignore_label=250, input_size=(512,1024), save_dir=checkpoint_dir)
@@ -595,14 +415,12 @@ def main():
     if mIoU > best_mIoU and save_best_model:
         best_mIoU = mIoU
         _save_checkpoint(i_iter, model, optimizer, config, ema_model, save_best=True)
-
     if config['utils']['tensorboard']:
         tensorboard_writer.add_scalar('Validation/mIoU', mIoU, i_iter)
         tensorboard_writer.add_scalar('Validation/Loss', val_loss, i_iter)
-
-
     end = timeit.default_timer()
     print('Total time: ' + str(end-start) + 'seconds')
+
 
 if __name__ == '__main__':
 
