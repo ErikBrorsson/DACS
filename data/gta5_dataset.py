@@ -8,6 +8,7 @@ import torch
 import torchvision
 from torch.utils import data
 from PIL import Image
+from dataset_classes import dset_nolabel, dset_croprot
 
 
 class GTA5DataSet(data.Dataset):
@@ -88,6 +89,27 @@ class GTAWrapper(GTA5DataSet):
 
         return image, label, size, name, np.array([1])
 
+
+class SsGTA5:
+    def __init__(self, root, list_path, max_iters=None,
+        augmentations = None, img_size=(321, 321), mean=(128, 128, 128),
+        scale=True, mirror=True, ignore_label=250,
+        crop_size = 256
+        ):
+        cityscapes_ds = GTA5DataSet(root=root, list_path=list_path, max_iters=max_iters,
+            augmentations=augmentations, img_size=img_size, mean=mean, scale=scale, mirror=mirror, ignore_label=ignore_label)
+
+        # remove the labels and then create the croprot dataset           
+        no_label_ds = dset_nolabel(cityscapes_ds)
+        self.db = dset_croprot(no_label_ds, crop_size)
+
+    def __getitem__(self, idx):
+        img, label = self.db.__getitem__(idx)
+
+        return img.copy(), label
+
+    def __len__(self):
+        return len(self.db)
         
 
 if __name__ == '__main__':

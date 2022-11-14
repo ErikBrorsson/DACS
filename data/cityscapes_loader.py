@@ -10,6 +10,8 @@ from torch.utils import data
 from data.city_utils import recursive_glob
 from data.augmentations import *
 
+from dataset_classes import dset_nolabel, dset_croprot
+
 class cityscapesLoader(data.Dataset):
     """cityscapesLoader
 
@@ -217,6 +219,35 @@ class cityscapesLoader(data.Dataset):
         for _validc in self.valid_classes:
             mask[mask == _validc] = self.class_map[_validc]
         return mask
+
+
+class SsCityscapes:
+    def __init__(self,
+        root,
+        split="train",
+        is_transform=False,
+        img_size=(512, 1024),
+        img_norm=False,
+        augmentations=None,
+        version="cityscapes",
+        return_id=False,
+        img_mean = np.array([73.15835921, 82.90891754, 72.39239876]),
+        crop_size = 256
+        ):
+        cityscapes_ds = cityscapesLoader(root=root, split=split, is_transform=is_transform, img_size=img_size,
+            img_norm=img_norm, augmentations=augmentations, version=version, return_id=return_id, img_mean=img_mean)
+
+        # remove the labels and then create the croprot dataset           
+        no_label_ds = dset_nolabel(cityscapes_ds)
+        self.db = dset_croprot(no_label_ds, crop_size)
+
+    def __getitem__(self, idx):
+        img, label = self.db.__getitem__(idx)
+
+        return img.copy(), label
+
+    def __len__(self):
+        return len(self.db)
 
 '''
 if __name__ == "__main__":
