@@ -1,8 +1,7 @@
 import torch
 import torch.utils.data
 import numpy as np
-from skimage import transform as sktsf
-from dataset_classes import dset_nolabel
+from dataset_classes.dset_nolabel import DsetNoLabel
 # Assumes that tensor is (nchannels, height, width)
 def tensor_rot_90(x):
     return x.flip(2).transpose(1,2)
@@ -15,8 +14,8 @@ def tensor_rot_270(x):
 
 class DsetSSCropRot(torch.utils.data.Dataset):
     # Make sure that your dataset only returns one element!
-    def __init__(self, dset: dset_nolabel = None, crop_size: int = 256):
-        assert type(dset) is dset_nolabel, "DsetSSCropRot must take a dataset of type dset_nolabel as input"
+    def __init__(self, dset: DsetNoLabel = None, crop_size: int = 256):
+        assert type(dset) is DsetNoLabel, "DsetSSCropRot must take a dataset of type dset_nolabel as input"
 
         self.dset = dset
         self.crop_size = crop_size
@@ -33,7 +32,8 @@ class DsetSSCropRot(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         image = self.dset[index]
-        image = torch.tensor(image, dtype=torch.float)
+        if not type(image) is torch.tensor:
+            image = torch.tensor(image, dtype=torch.float)
 
         # randomly make the image black... I used this to test the uncertainty estimates
         # random_black = np.random.randint(2)

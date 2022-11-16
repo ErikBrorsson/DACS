@@ -8,7 +8,8 @@ import torch
 import torchvision
 from torch.utils import data
 from PIL import Image
-from dataset_classes import dset_nolabel, dset_croprot
+from dataset_classes.dset_nolabel import DsetNoLabel
+from dataset_classes.dset_croprot import DsetSSCropRot
 
 
 class GTA5DataSet(data.Dataset):
@@ -100,8 +101,8 @@ class SsGTA5:
             augmentations=augmentations, img_size=img_size, mean=mean, scale=scale, mirror=mirror, ignore_label=ignore_label)
 
         # remove the labels and then create the croprot dataset           
-        no_label_ds = dset_nolabel(cityscapes_ds)
-        self.db = dset_croprot(no_label_ds, crop_size)
+        no_label_ds = DsetNoLabel(cityscapes_ds)
+        self.db = DsetSSCropRot(no_label_ds, crop_size)
 
     def __getitem__(self, idx):
         img, label = self.db.__getitem__(idx)

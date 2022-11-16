@@ -63,7 +63,8 @@ def alternative_attenuation_loss(pred, target):
     return loss
     
 
-def parse_tasks_od(ss_params, feature_extractor):
+def parse_tasks_od(config, ss_params, feature_extractor):
+    crop_size = config["training"]["ss"]["crop_size"]
 
     source_ds = SsGTA5(
         root=ss_params["gta"]["data_path"],
@@ -71,38 +72,45 @@ def parse_tasks_od(ss_params, feature_extractor):
         augmentations=ss_params["gta"]["data_aug"],
         img_size=ss_params["gta"]["img_size"],
         mean=ss_params["gta"]["img_mean"],
-        crop_size=ss_params["gta"]["crop_size"]
+        crop_size=crop_size
         )
 
     config['training']['learning_rate']
 
-    source_ds = SsSim10k(opt, task="crop_rot")
     source_dl = data_.DataLoader(source_ds,
                                     batch_size=1,
-                                    num_workers=opt.test_num_workers,
+                                    num_workers=1,
                                     shuffle=False, \
                                     pin_memory=True
                                     )
 
-    target_ds = SsCityscapes(opt, task="crop_rot")
+    # using the default img_size which is (512, 1024)
+    target_ds = SsCityscapes(
+        root=ss_params["cityscapes"]["data_path"],
+        split="train",
+        is_transform=ss_params["cityscapes"]["is_transform"],
+        augmentations=ss_params["cityscapes"]["data_aug"],
+        img_mean=ss_params["cityscapes"]["img_mean"],
+        crop_size=crop_size
+        )
     target_dl = data_.DataLoader(target_ds,
                                     batch_size=1,
-                                    num_workers=opt.test_num_workers,
+                                    num_workers=1,
                                     shuffle=False, \
                                     pin_memory=True
                                     )
 
-    if opt.attenuation_loss:
+    if config["training"]["ss"]["attenuation_loss"]:
         criterion = alternative_attenuation_loss
-        head = linear_on_layer3_square_img(5, opt.width, int(opt.crop_size / 128)).cuda()
+        head = linear_on_layer3_square_img(5, 0, int(crop_size / 128)).cuda()
     else:
         criterion = nn.CrossEntropyLoss().cuda()
-        head = linear_on_layer3_square_img(4, opt.width, int(opt.crop_size / 128)).cuda()
+        head = linear_on_layer3_square_img(4, 0, int(crop_size / 128)).cuda()
 
     optimizer = optim.SGD(list(feature_extractor.parameters()) + list(head.parameters()), 
-                            lr=opt.lr_ss_tasks, momentum=0.9, weight_decay=opt.weight_decay)
+                            lr=config["training"]["ss"]["lr_ss_task"], momentum=0.9, weight_decay=config["training"]["weight_decay"])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer, [opt.milestone_1 + opt.pre_training_steps, opt.milestone_2 + opt.pre_training_steps], gamma=0.1, last_epoch=-1)
+        optimizer, [config["training"]["ss"]["milestone_1"], config["training"]["ss"]["milestone_2"]], gamma=0.1, last_epoch=-1)
     sstask = SSTask(feature_extractor, head, criterion, optimizer, scheduler,
                     source_dl, target_dl)
     sstask.assign_test(test)

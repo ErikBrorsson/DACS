@@ -209,8 +209,8 @@ class Extractor(nn.Module):
         x = self.maxpool(x)
         x = self.layer1(x)
         x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
+        # x = self.layer3(x)
+        # x = self.layer4(x)
 
         return x
     
@@ -258,26 +258,19 @@ def main():
     model.cuda()
 
     cudnn.benchmark = True
-    if dataset == 'cityscapes':
-        data_loader = get_loader('cityscapes')
-        data_path = get_data_path('cityscapes')
-        if random_crop:
-            data_aug = Compose([RandomCrop_city(input_size)])
-        else:
-            data_aug = None
+    # if dataset == 'cityscapes':
+    #     data_loader = get_loader('cityscapes')
+    #     data_path = get_data_path('cityscapes')
+    #     if random_crop:
+    #         data_aug = Compose([RandomCrop_city(input_size)])
+    #     else:
+    #         data_aug = None
 
-        #data_aug = Compose([RandomHorizontallyFlip()])
-        train_dataset = data_loader(data_path, is_transform=True, augmentations=data_aug, img_size=input_size, img_mean = IMG_MEAN)
-
-        ss_params["cityscapes"]["data_path"] = data_path
-        ss_params["cityscapes"]["is_transform"] = True
-        ss_params["cityscapes"]["data_aug"] = data_aug
-        ss_params["cityscapes"]["img_size"] = input_size
-        ss_params["cityscapes"]["img_mean"] = IMG_MEAN
+    #     #data_aug = Compose([RandomHorizontallyFlip()])
+    #     train_dataset = data_loader(data_path, is_transform=True, augmentations=data_aug, img_size=input_size, img_mean = IMG_MEAN)
         
-
-    train_dataset_size = len(train_dataset)
-    print ('dataset size: ', train_dataset_size)
+    # train_dataset_size = len(train_dataset)
+    # print ('dataset size: ', train_dataset_size)
 
     #New loader for Domain transfer
     if True:
@@ -289,13 +282,8 @@ def main():
             data_aug = None
 
         #data_aug = Compose([RandomHorizontallyFlip()])
-        train_dataset = data_loader(data_path, list_path = './data/gta5_list/train.txt', augmentations=data_aug, img_size=(1280,720), mean=IMG_MEAN)
-
-        ss_params["gta"]["data_path"] = data_path
-        ss_params["gta"]["list_path"] = './data/gta5_list/train.txt'
-        ss_params["gta"]["data_aug"] = data_aug
-        ss_params["gta"]["img_size"] = (1280,720)
-        ss_params["gta"]["img_mean"] = IMG_MEAN
+        train_dataset = data_loader(data_path, list_path = './data/gta5_list/train.txt',
+            augmentations=data_aug, img_size=(1280,720), mean=IMG_MEAN)
 
     trainloader = data.DataLoader(train_dataset,
                     batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
@@ -303,12 +291,24 @@ def main():
     trainloader_iter = iter(trainloader)
     print('gta size:',len(trainloader))
 
-    # create ss task
+    # gather the layers from DeepLab as the feature extractor which is used by the self-supervised training
     extractor = Extractor(model.conv1, model.bn1, model.relu, model.maxpool,
         model.layer1, model.layer2, model.layer3, model.layer4)
 
-    ss_task = parse_tasks_od(ss_params, extractor)
+    # define the parameters for the Ss source and target dataset
+    ss_params["cityscapes"]["data_path"] = get_data_path('cityscapes')
+    ss_params["cityscapes"]["is_transform"] = True
+    ss_params["cityscapes"]["data_aug"] = None
+    ss_params["cityscapes"]["img_mean"] = IMG_MEAN
 
+    ss_params["gta"]["data_path"] = get_data_path('gta')
+    ss_params["gta"]["list_path"] = './data/gta5_list/train.txt'
+    ss_params["gta"]["data_aug"] = None
+    ss_params["gta"]["img_size"] = (1280,720)
+    ss_params["gta"]["img_mean"] = IMG_MEAN
+
+    # create the self-supervised task
+    ss_task = parse_tasks_od(config, ss_params, extractor)
 
 
     #Load new data for domain_transfer
@@ -348,6 +348,10 @@ def main():
         json.dump(config, handle, indent=4, sort_keys=True)
 
     epochs_since_start = 0
+
+    n_correct_src = 0
+    n_correct_trg = 0
+    n_total_ss = 0
     for i_iter in range(start_iteration, num_iterations):
         model.train()
 
@@ -403,8 +407,33 @@ def main():
         loss.backward()
         optimizer.step()
 
+        for ss_steps_per_batch in range(1):
+            n_total_ss += 1
+            s = f"ss_task_"
+            (source_outputs, source_labels, target_outputs, target_labels,
+                source_loss, target_loss, source_inputs, target_inputs) = ss_task.train_batch_separate()
+            if config["training"]["ss"]["attenuation_loss"]:
+                source_pred_label = torch.argmax(source_outputs[:, 0:4], axis=1)
+                target_pred_label = torch.argmax(target_outputs[:, 0:4], axis=1)
+            else:
+                source_pred_label = torch.argmax(source_outputs, axis=1)
+                target_pred_label = torch.argmax(target_outputs, axis=1) 
+            source_correct = source_pred_label == source_labels
+            if source_correct.item():
+                n_correct_src += 1
+            target_correct = target_pred_label == target_labels
+            if target_correct.item():
+                n_correct_trg += 1
+
         # print losses
-        print('iter = {0:6d}/{1:6d}, loss_l = {2:.3f}, loss_u = {3:.3f}'.format(i_iter, num_iterations, loss_l_value, loss_u_value))
+        print('iter = {0:6d}/{1:6d}, loss_l = {2:.3f}, loss_u = {3:.3f}, ss_loss_src = {4:.3f}, ss_loss_trg = {5:.3f}'.format(
+            i_iter, num_iterations, loss_l_value, loss_u_value, source_loss, target_loss))
+
+        # if i_iter % 100 == 0:
+        #     print("ss_acc_src = {0:.2f}, ss_acc_trg {1:.2f}".format(n_correct_src / n_total_ss, n_correct_trg / n_total_ss))
+        #     n_total_ss = 0
+        #     n_correct_src = 0
+        #     n_correct_trg = 0
 
         # save checkpoint
         if i_iter % save_checkpoint_every == 0 and i_iter!=0:
@@ -425,11 +454,19 @@ def main():
 
                 tensorboard_writer.add_scalar('Training/Supervised loss', np.mean(accumulated_loss_l), i_iter)
                 accumulated_loss_l = []
+                tensorboard_writer.add_scalar('Training/Learning Rate', optimizer.param_groups[0]['lr'], i_iter)
 
                 if train_unlabeled:
                     tensorboard_writer.add_scalar('Training/Unsupervised loss', np.mean(accumulated_loss_u), i_iter)
                     accumulated_loss_u = []
 
+                if train_ss:
+                    print("ss_acc_src = {0:.2f}, ss_acc_trg {1:.2f}".format(n_correct_src / n_total_ss, n_correct_trg / n_total_ss))
+                    tensorboard_writer.add_scalar('Training/ss_acc_src', n_correct_src / n_total_ss, i_iter)
+                    tensorboard_writer.add_scalar('Training/ss_acc_trg', n_correct_trg / n_total_ss, i_iter)
+                    n_total_ss = 0
+                    n_correct_src = 0
+                    n_correct_trg = 0
 
         # evaluate model on both cityscapes and gta
         if i_iter % val_per_iter == 0 and i_iter != 0:
@@ -527,6 +564,9 @@ if __name__ == '__main__':
 
     random_scale = config['training']['data']['scale']
     random_crop = config['training']['data']['crop']
+
+    train_ss = config['training']['ss']['train_ss']
+
 
     save_checkpoint_every = config['utils']['save_checkpoint_every']
     if args.resume:
