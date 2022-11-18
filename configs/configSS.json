@@ -32,8 +32,8 @@
         "ss": {
             "train_ss": true,
             "crop_size": 256,
-            "attenuation_loss": false,
-            "lr_ss_task": 1e-6,
+            "attenuation_loss": true,
+            "lr_ss_task": 1e-4,
             "milestone_1": 10000,
             "milestone_2": 20000
         }
@@ -42,9 +42,9 @@
     "pretrained": "coco",
     "ignore_label": 255,
     "utils": {
-        "save_checkpoint_every": 10000,
+        "save_checkpoint_every": 10000000,
         "checkpoint_dir": "../saved/DeepLabv2",
-        "val_per_iter": 1000,
+        "val_per_iter": 1000000,
         "tensorboard": true,
         "log_per_iter": 100,
         "save_best_model": true

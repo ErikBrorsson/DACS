@@ -1,3 +1,5 @@
+# tensorboard --logdir /home/erik/phd/code/dacs_fork/saved/DeepLabv2/
+# python3 ss_training.py -n UDA -c ~/phd/code/dacs_fork/DACS/configs/configSS.json
 from utils_uda.parse_tasks import parse_tasks_od
 import argparse
 import os
@@ -308,7 +310,7 @@ def main():
     ss_params["gta"]["img_mean"] = IMG_MEAN
 
     # create the self-supervised task
-    ss_task = parse_tasks_od(config, ss_params, extractor)
+    ss_task = parse_tasks_od(config, ss_params, extractor, log_dir)
 
 
     #Load new data for domain_transfer
@@ -341,6 +343,8 @@ def main():
 
     accumulated_loss_l = []
     accumulated_loss_u = []
+    accumulated_loss_src = []
+    accumulated_loss_trg = []
 
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
@@ -379,33 +383,37 @@ def main():
         #else:
         weak_parameters={"flip": 0}
 
+        if False:
+            images, labels, _, _ = batch
+            images = images.cuda()
+            labels = labels.cuda().long()
 
-        images, labels, _, _ = batch
-        images = images.cuda()
-        labels = labels.cuda().long()
+            #images, labels = weakTransform(weak_parameters, data = images, target = labels)
 
-        #images, labels = weakTransform(weak_parameters, data = images, target = labels)
+            pred = interp(model(images))
+            L_l = loss_calc(pred, labels) # Cross entropy loss for labeled data
+            #L_l = torch.Tensor([0.0]).cuda()
 
-        pred = interp(model(images))
-        L_l = loss_calc(pred, labels) # Cross entropy loss for labeled data
-        #L_l = torch.Tensor([0.0]).cuda()
+            loss = L_l
 
-        loss = L_l
+            if len(gpus) > 1:
+                #print('before mean = ',loss)
+                loss = loss.mean()
+                #print('after mean = ',loss)
+                loss_l_value += L_l.mean().item()
+                # if train_unlabeled:
+                #     loss_u_value += L_u.mean().item()
+            else:
+                loss_l_value += L_l.item()
+                # if train_unlabeled:
+                #     loss_u_value += L_u.item()
 
-        if len(gpus) > 1:
-            #print('before mean = ',loss)
-            loss = loss.mean()
-            #print('after mean = ',loss)
-            loss_l_value += L_l.mean().item()
-            # if train_unlabeled:
-            #     loss_u_value += L_u.mean().item()
+
+            # TODO 
+            loss.backward()
+            optimizer.step()
         else:
-            loss_l_value += L_l.item()
-            # if train_unlabeled:
-            #     loss_u_value += L_u.item()
-
-        loss.backward()
-        optimizer.step()
+            loss = 0.
 
         for ss_steps_per_batch in range(1):
             n_total_ss += 1
@@ -450,6 +458,9 @@ def main():
             accumulated_loss_l.append(loss_l_value)
             if train_unlabeled:
                 accumulated_loss_u.append(loss_u_value)
+            if train_ss:
+                accumulated_loss_src.append(source_loss)
+                accumulated_loss_trg.append(target_loss)
             if i_iter % log_per_iter == 0 and i_iter != 0:
 
                 tensorboard_writer.add_scalar('Training/Supervised loss', np.mean(accumulated_loss_l), i_iter)
@@ -464,6 +475,10 @@ def main():
                     print("ss_acc_src = {0:.2f}, ss_acc_trg {1:.2f}".format(n_correct_src / n_total_ss, n_correct_trg / n_total_ss))
                     tensorboard_writer.add_scalar('Training/ss_acc_src', n_correct_src / n_total_ss, i_iter)
                     tensorboard_writer.add_scalar('Training/ss_acc_trg', n_correct_trg / n_total_ss, i_iter)
+                    tensorboard_writer.add_scalar('Training/SS src loss', np.mean(accumulated_loss_src), i_iter)
+                    accumulated_loss_src = []
+                    tensorboard_writer.add_scalar('Training/SS trg loss', np.mean(accumulated_loss_trg), i_iter)
+                    accumulated_loss_trg = []
                     n_total_ss = 0
                     n_correct_src = 0
                     n_correct_trg = 0

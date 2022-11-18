@@ -5,8 +5,9 @@ import torch.utils.data as torchdata
 
 from utils_uda.train import test
 from utils_uda.SSTask import SSTask
-from utils_uda.SSHead import linear_on_layer3, linear_on_layer3_square_img, linear_on_layer3_square_img_small
+from utils_uda.SSHead import linear_on_layer3, linear_on_layer3_square_img, linear_on_layer3_square_img_small, last_layer_head
 from torch.utils import data as data_
+from torch.utils import tensorboard
 
 from data.cityscapes_loader import SsCityscapes
 from data.gta5_dataset import SsGTA5
@@ -39,31 +40,49 @@ def attenuation_loss(pred, target):
 
     return loss
 
-def alternative_attenuation_loss(pred, target):
-    # assuming that pred is (N x 5)... i.e. 4 classes and 1 variance prediction
-    n_classes = 4
+def decorated_loss(writer, counter):
+    def alternative_attenuation_loss(pred, target):
+        alternative_attenuation_loss.counter += 1
+        # assuming that pred is (N x 5)... i.e. 4 classes and 1 variance prediction
+        n_classes = 4
 
-    log_variance = pred[0, n_classes:] # assumes batchsize 1
-    pred_class_logits = pred[:, 0:n_classes]
+        log_variance = pred[0, n_classes:] # assumes batchsize 1
+        pred_class_logits = pred[:, 0:n_classes]
 
-    # old implementation
-    softmax = torch.nn.Softmax(dim=1)(pred_class_logits)
-    log_probabilities = torch.log(softmax)
-    loss = torch.nn.NLLLoss()(log_probabilities, target) / (torch.exp(log_variance)) + torch.abs(log_variance) / 10
+        # old implementation
+        # softmax = torch.nn.Softmax(dim=1)(pred_class_logits)
+        # log_probabilities = torch.log(softmax)
+        # loss = torch.nn.NLLLoss()(log_probabilities, target) / (torch.exp(log_variance)) + torch.abs(log_variance) / 10
 
-    # new implementation... better in three aspects: first, logsoftmax is more stable than softmax followed by log (avoids overflow in exp).
-    # Second, I turn the division of NLLLoss with exp(log_variance) into a substraction of log(NLLLoss) and log_variance (which again avoids overflow in exp)
-    # Third, the abs is replaced by smoothL1Loss
-    # log_probabilities = torch.nn.LogSoftmax(dim=1)(pred_class_logits)
-    # smooth_l1 = torch.nn.SmoothL1Loss()(log_variance, torch.zeros_like(log_variance))
-    # # loss = torch.exp(torch.log(torch.nn.NLLLoss()(log_probabilities, target)) - log_variance) + smooth_l1 / 10.
-    # loss = torch.nn.NLLLoss()(log_probabilities, target) / (torch.exp(log_variance)) + smooth_l1 / 10. # turns out that log(NLLLoss) becomes a problem relatively quickly, since
-    # the NLLLoss for highly confident examples is exactly 0. In practice, this was a more common problem than overflow in torch.exp(log_variance).
+        # new implementation... better in three aspects: first, logsoftmax is more stable than softmax followed by log (avoids overflow in exp).
+        # Second, I turn the division of NLLLoss with exp(log_variance) into a substraction of log(NLLLoss) and log_variance (which again avoids overflow in exp)
+        # Third, the abs is replaced by smoothL1Loss
+        log_probabilities = torch.nn.LogSoftmax(dim=1)(pred_class_logits)
+        smooth_l1 = torch.nn.SmoothL1Loss()(log_variance, torch.zeros_like(log_variance))
+        # # loss = torch.exp(torch.log(torch.nn.NLLLoss()(log_probabilities, target)) - log_variance) + smooth_l1 / 10.
+        loss = torch.nn.NLLLoss()(log_probabilities, target) / (torch.max(torch.exp(log_variance), torch.tensor(1.0))) + smooth_l1 / 10. # turns out that log(NLLLoss) becomes a problem relatively quickly, since
+        # the NLLLoss for highly confident examples is exactly 0. In practice, this was a more common problem than overflow in torch.exp(log_variance).
 
-    return loss
-    
+        # Note that I've also added torch.max(x, 1.0) in the above loss. Obviously, when log_var > 0., this term has no impact.
+        # When log_var < 0.0: the gradient of the NLLL term with respect to log_var is zero, however, the smooth_l1 will push log_var towards
+        # positive values... => in the long term log_var should only take on positive values
+        # Furthermore, the torch.max makes sure that we never divide NLLL loss with a value smaller than 1.0, which results in more
+        # stable training.
+        # Specifically, the training often diverged without this torch.max term... This could for example happend if the network
+        # predicts a very large negative value of log_var (e.g. =-20) while also misclassifying the image (resulting in large NLLL).
 
-def parse_tasks_od(config, ss_params, feature_extractor):
+        lv = log_variance.detach().cpu().numpy()[0]
+        lo = loss.detach().cpu().numpy()[0]
+        writer.add_scalar('Training/log_variance', lv, alternative_attenuation_loss.counter)
+        print(f"log_var = {lv:.3f}, loss = {lo:.3f}")
+
+        return loss
+    alternative_attenuation_loss.counter = 0
+    return alternative_attenuation_loss
+
+
+def parse_tasks_od(config, ss_params, feature_extractor, log_dir):
+    writer = tensorboard.SummaryWriter(log_dir, flush_secs=30)
     crop_size = config["training"]["ss"]["crop_size"]
 
     source_ds = SsGTA5(
@@ -101,7 +120,9 @@ def parse_tasks_od(config, ss_params, feature_extractor):
                                     )
 
     if config["training"]["ss"]["attenuation_loss"]:
-        criterion = alternative_attenuation_loss
+        print(f"##################\n Using attenuation Loss\n##################")
+        counter = 0
+        criterion = decorated_loss(writer, counter)
         head = linear_on_layer3_square_img(5, 0, int(crop_size / 128)).cuda()
     else:
         criterion = nn.CrossEntropyLoss().cuda()
