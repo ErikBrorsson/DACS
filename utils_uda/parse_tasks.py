@@ -99,7 +99,7 @@ def parse_tasks_od(config, ss_params, feature_extractor, log_dir):
     source_dl = data_.DataLoader(source_ds,
                                     batch_size=1,
                                     num_workers=1,
-                                    shuffle=False, \
+                                    shuffle=True, \
                                     pin_memory=True
                                     )
 
@@ -115,7 +115,7 @@ def parse_tasks_od(config, ss_params, feature_extractor, log_dir):
     target_dl = data_.DataLoader(target_ds,
                                     batch_size=1,
                                     num_workers=1,
-                                    shuffle=False, \
+                                    shuffle=True, \
                                     pin_memory=True
                                     )
 

@@ -97,20 +97,20 @@ class SsGTA5:
         scale=True, mirror=True, ignore_label=250,
         crop_size = 256
         ):
-        cityscapes_ds = GTA5DataSet(root=root, list_path=list_path, max_iters=max_iters,
+        gta_ds = GTA5DataSet(root=root, list_path=list_path, max_iters=max_iters,
             augmentations=augmentations, img_size=img_size, mean=mean, scale=scale, mirror=mirror, ignore_label=ignore_label)
 
         # remove the labels and then create the croprot dataset           
-        no_label_ds = DsetNoLabel(cityscapes_ds)
-        self.db = DsetSSCropRot(no_label_ds, crop_size)
+        no_label_ds = DsetNoLabel(gta_ds)
+        self.croprot_ds = DsetSSCropRot(no_label_ds, crop_size)
 
     def __getitem__(self, idx):
-        img, label = self.db.__getitem__(idx)
+        img, label = self.croprot_ds.__getitem__(idx)
 
         return img.copy(), label
 
     def __len__(self):
-        return len(self.db)
+        return len(self.croprot_ds)
         
 
 if __name__ == '__main__':

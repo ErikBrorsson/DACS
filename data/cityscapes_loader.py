@@ -240,15 +240,15 @@ class SsCityscapes:
 
         # remove the labels and then create the croprot dataset           
         no_label_ds = DsetNoLabel(cityscapes_ds)
-        self.db = DsetSSCropRot(no_label_ds, crop_size)
+        self.croprot_ds = DsetSSCropRot(no_label_ds, crop_size)
 
     def __getitem__(self, idx):
-        img, label = self.db.__getitem__(idx)
+        img, label = self.croprot_ds.__getitem__(idx)
 
         return img.copy(), label
 
     def __len__(self):
-        return len(self.db)
+        return len(self.croprot_ds)
 
 '''
 if __name__ == "__main__":

@@ -24,10 +24,12 @@ class SSTask():
 			
 	def reset_su(self):
 		self.su_tr_iter_counter = 1
+		self.su_tr_loader.dataset.croprot_ds.randomize_crops() # get new random crops for next epoch
 		self.su_tr_loader_iterator = iter(self.su_tr_loader)
 
 	def reset_tu(self):
 		self.tu_tr_iter_counter = 1
+		self.tu_tr_loader.dataset.croprot_ds.randomize_crops() # get new random crops for next epoch
 		self.tu_tr_loader_iterator = iter(self.tu_tr_loader)
 
 	def assign_test(self, function):

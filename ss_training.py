@@ -21,7 +21,7 @@ from torch.utils import data, model_zoo
 from torch.autograd import Variable
 import torchvision.transforms as transform
 
-from model.deeplabv2 import Res_Deeplab
+from model.deeplabv2 import Res_Deeplab, Extractor
 
 from utils.loss import CrossEntropy2d
 from utils.loss import CrossEntropyLoss2dPixelWiseWeighted
@@ -191,30 +191,6 @@ def _resume_checkpoint(resume_path, model, optimizer, ema_model):
             ema_model.load_state_dict(checkpoint['ema_model'])
 
     return iteration, model, optimizer, ema_model
-
-class Extractor(nn.Module):
-    def __init__(self, conv1, bn1, relu, maxpool, layer1, layer2, layer3, layer4) -> None:
-        super(Extractor, self).__init__()
-        self.conv1 = conv1
-        self.bn1 = bn1
-        self.relu = relu
-        self.maxpool = maxpool
-        self.layer1 = layer1
-        self.layer2 = layer2
-        self.layer3 = layer3
-        self.layer4 = layer4
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        # x = self.layer3(x)
-        # x = self.layer4(x)
-
-        return x
     
 
 def main():
@@ -510,6 +486,7 @@ def main():
 
     # after finished training, save checkpoint and evaluate model
     _save_checkpoint(num_iterations, model, optimizer, config, ema_model)
+    torch.save(ss_task.head.state_dict(), os.path.join(checkpoint_dir, "head_{}".format("final")))
     model.eval()
     if dataset == 'cityscapes':
         mIoU, val_loss = evaluate(model, dataset, ignore_label=250, input_size=(512,1024), save_dir=checkpoint_dir)

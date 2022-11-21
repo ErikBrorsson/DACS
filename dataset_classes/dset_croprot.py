@@ -21,14 +21,18 @@ class DsetSSCropRot(torch.utils.data.Dataset):
         self.crop_size = crop_size
 
         # use this code to create a 'deterministic' dataset
-        # image, _, _, _ = self.dset[0]
-        # img_width = image.shape[2]
-        # img_height = image.shape[1]
+        image = self.dset[0]
+        self.img_width = image.shape[2]
+        self.img_height = image.shape[1]
+        self.seed = 0
+        self.randomize_crops()
 
-        # self.x_rand = np.random.randint(img_width - self.crop_size, size=len(dset))
-        # self.y_rand = np.random.randint(img_height - self.crop_size, size=len(dset))
-        # self.labels = np.random.randint(4, size=len(dset))
-
+    def randomize_crops(self):
+        self.seed += 1
+        np.random.seed(self.seed)
+        self.x_rand = np.random.randint(self.img_width - self.crop_size, size=len(self.dset))
+        self.y_rand = np.random.randint(self.img_height - self.crop_size, size=len(self.dset))
+        self.labels = np.random.randint(4, size=len(self.dset))
 
     def __getitem__(self, index):
         image = self.dset[index]
@@ -39,28 +43,29 @@ class DsetSSCropRot(torch.utils.data.Dataset):
         # random_black = np.random.randint(2)
         # if random_black == 1:
         #     image = torch.zeros_like(image)
-        label = np.random.randint(4)
 
-        img_width = image.shape[2]
-        img_height = image.shape[1]
+        # label = np.random.randint(4)
 
-        patch_size = self.crop_size
-        # y_zone = 128 + 64
+        # img_width = image.shape[2]
+        # img_height = image.shape[1]
 
-        # generate random position of square patch
-        x_rand = np.random.randint(img_width - patch_size)
-        # y_rand = np.random.randint(img_height - patch_size - y_zone)
-        y_rand = np.random.randint(img_height - patch_size)
+        # patch_size = self.crop_size
+        # # y_zone = 128 + 64
 
-        # crop selected patch
-        # image = image[:, 128 + y_rand:128 + y_rand+patch_size, x_rand:x_rand+patch_size]
-        image = image[:, y_rand:y_rand+patch_size, x_rand:x_rand+patch_size]
+        # # generate random position of square patch
+        # x_rand = np.random.randint(img_width - patch_size)
+        # # y_rand = np.random.randint(img_height - patch_size - y_zone)
+        # y_rand = np.random.randint(img_height - patch_size)
+
+        # # crop selected patch
+        # # image = image[:, 128 + y_rand:128 + y_rand+patch_size, x_rand:x_rand+patch_size]
+        # image = image[:, y_rand:y_rand+patch_size, x_rand:x_rand+patch_size]
 
         # deterministic dataset
-        # x_rand = self.x_rand[index]
-        # y_rand = self.y_rand[index]
-        # image = image[:, y_rand:y_rand+self.crop_size, x_rand:x_rand+self.crop_size]
-        # label = self.labels[index]
+        x_rand = self.x_rand[index]
+        y_rand = self.y_rand[index]
+        image = image[:, y_rand:y_rand+self.crop_size, x_rand:x_rand+self.crop_size]
+        label = self.labels[index]
 
         if label == 1:
             image = tensor_rot_90(image)
