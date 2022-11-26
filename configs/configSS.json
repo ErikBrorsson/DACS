@@ -6,7 +6,7 @@
         "num_workers": 4,
         "optimizer": "SGD",
         "momentum": 0.9,
-        "num_iterations": 10000,
+        "num_iterations": 250000,
         "learning_rate": 2.5e-4,
         "lr_schedule": "Poly",
         "lr_schedule_power": 0.9,
@@ -34,8 +34,8 @@
             "crop_size": 128,
             "attenuation_loss": true,
             "lr_ss_task": 1e-4,
-            "milestone_1": 10000,
-            "milestone_2": 20000
+            "milestone_1": 100000,
+            "milestone_2": 190000
         }
     },
     "seed": 1,

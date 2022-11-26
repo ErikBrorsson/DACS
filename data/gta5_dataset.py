@@ -54,8 +54,9 @@ class GTA5DataSet(data.Dataset):
         name = datafiles["name"]
 
         # resize
-        image = image.resize(self.img_size, Image.BICUBIC)
-        label = label.resize(self.img_size, Image.NEAREST)
+        if not self.img_size is None:
+            image = image.resize(self.img_size, Image.BICUBIC)
+            label = label.resize(self.img_size, Image.NEAREST)
 
         image = np.asarray(image, np.uint8)
         label = np.asarray(label, np.uint8)
