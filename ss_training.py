@@ -285,8 +285,9 @@ def main():
     ss_params["gta"]["img_size"] = (1280,720)
     ss_params["gta"]["img_mean"] = IMG_MEAN
 
-    # create the self-supervised task
-    ss_task = parse_tasks_od(config, ss_params, extractor, log_dir)
+    if train_ss:
+        # create the self-supervised task
+        ss_task = parse_tasks_od(config, ss_params, extractor, log_dir)
 
 
     #Load new data for domain_transfer
@@ -359,7 +360,7 @@ def main():
         #else:
         weak_parameters={"flip": 0}
 
-        if False:
+        if True:
             images, labels, _, _ = batch
             images = images.cuda()
             labels = labels.cuda().long()
@@ -391,27 +392,32 @@ def main():
         else:
             loss = 0.
 
-        for ss_steps_per_batch in range(1):
-            n_total_ss += 1
-            s = f"ss_task_"
-            (source_outputs, source_labels, target_outputs, target_labels,
-                source_loss, target_loss, source_inputs, target_inputs) = ss_task.train_batch_separate()
-            if config["training"]["ss"]["attenuation_loss"]:
-                source_pred_label = torch.argmax(source_outputs[:, 0:4], axis=1)
-                target_pred_label = torch.argmax(target_outputs[:, 0:4], axis=1)
-            else:
-                source_pred_label = torch.argmax(source_outputs, axis=1)
-                target_pred_label = torch.argmax(target_outputs, axis=1) 
-            source_correct = source_pred_label == source_labels
-            if source_correct.item():
-                n_correct_src += 1
-            target_correct = target_pred_label == target_labels
-            if target_correct.item():
-                n_correct_trg += 1
+        if train_ss:
+            for ss_steps_per_batch in range(1):
+                n_total_ss += 1
+                s = f"ss_task_"
+                (source_outputs, source_labels, target_outputs, target_labels,
+                    source_loss, target_loss, source_inputs, target_inputs) = ss_task.train_batch_separate()
+                if config["training"]["ss"]["attenuation_loss"]:
+                    source_pred_label = torch.argmax(source_outputs[:, 0:4], axis=1)
+                    target_pred_label = torch.argmax(target_outputs[:, 0:4], axis=1)
+                else:
+                    source_pred_label = torch.argmax(source_outputs, axis=1)
+                    target_pred_label = torch.argmax(target_outputs, axis=1) 
+                source_correct = source_pred_label == source_labels
+                if source_correct.item():
+                    n_correct_src += 1
+                target_correct = target_pred_label == target_labels
+                if target_correct.item():
+                    n_correct_trg += 1
 
-        # print losses
-        print('iter = {0:6d}/{1:6d}, loss_l = {2:.3f}, loss_u = {3:.3f}, ss_loss_src = {4:.3f}, ss_loss_trg = {5:.3f}'.format(
-            i_iter, num_iterations, loss_l_value, loss_u_value, source_loss, target_loss))
+        s = 'iter = {0:6d}/{1:6d}, loss_l = {2:.3f}, loss_u = {3:.3f}'.format(
+                i_iter, num_iterations, loss_l_value, loss_u_value)
+        if train_ss:
+            # print losses
+            s = s + ', ss_loss_src = {0:.3f}, ss_loss_trg = {1:.3f}'.format(
+                source_loss, target_loss)
+        print(s)
 
         # if i_iter % 100 == 0:
         #     print("ss_acc_src = {0:.2f}, ss_acc_trg {1:.2f}".format(n_correct_src / n_total_ss, n_correct_trg / n_total_ss))
@@ -486,7 +492,8 @@ def main():
 
     # after finished training, save checkpoint and evaluate model
     _save_checkpoint(num_iterations, model, optimizer, config, ema_model)
-    torch.save(ss_task.head.state_dict(), os.path.join(checkpoint_dir, "head_{}".format("final")))
+    if train_ss:
+        torch.save(ss_task.head.state_dict(), os.path.join(checkpoint_dir, "head_{}".format("final")))
     model.eval()
     if dataset == 'cityscapes':
         mIoU, val_loss = evaluate(model, dataset, ignore_label=250, input_size=(512,1024), save_dir=checkpoint_dir)
