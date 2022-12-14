@@ -1,5 +1,5 @@
 # tensorboard --logdir /home/erik/phd/code/dacs_fork/saved/DeepLabv2/
-# python3 ss_training.py -n UDA -c ~/phd/code/dacs_fork/DACS/configs/configSS.json
+# python3 ss_training.py -n UDA -c ~/remote/phd/code/dacs_fork/DACS/configs/configSS.json
 from utils_uda.parse_tasks import parse_tasks_od
 import argparse
 import os
@@ -59,11 +59,11 @@ def get_arguments():
     parser = argparse.ArgumentParser(description="DeepLab-ResNet Network")
     parser.add_argument("--gpus", type=int, default=1,
                         help="choose number of gpu devices to use (default: 1)")
-    parser.add_argument("-c", "--config", type=str, default='config.json',
+    parser.add_argument("-c", "--config", type=str, default='~/remote/phd/code/dacs_fork/DACS/configs/configSS.json',
                         help='Path to the config file (default: config.json)')
     parser.add_argument("-r", "--resume", type=str, default=None,
                         help='Path to the .pth file to resume from (default: None)')
-    parser.add_argument("-n", "--name", type=str, default=None, required=True,
+    parser.add_argument("-n", "--name", type=str, default="UDA",
                         help='Name of the run (default: None)')
     parser.add_argument("--save-images", type=str, default=None,
                         help='Include to save images (default: None)')
@@ -260,7 +260,7 @@ def main():
             data_aug = None
 
         #data_aug = Compose([RandomHorizontallyFlip()])
-        train_dataset = data_loader(data_path, list_path = './data/gta5_list/train.txt',
+        train_dataset = data_loader(data_path, list_path = './data/gta5_list/mini_train.txt',
             augmentations=data_aug, img_size=(1280,720), mean=IMG_MEAN)
 
     trainloader = data.DataLoader(train_dataset,
